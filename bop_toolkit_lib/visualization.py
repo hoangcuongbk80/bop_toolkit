@@ -4,13 +4,15 @@
 """Visualization utilities."""
 
 import os
-# import cv2
+import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from bop_toolkit_lib import inout
 from bop_toolkit_lib import misc
 
+import random
+from scipy.spatial.transform import Rotation
 
 def draw_rect(im, rect, color=(1.0, 1.0, 1.0)):
   """Draws a rectangle on an image.
@@ -142,8 +144,21 @@ def vis_object_poses(
   if vis_depth_diff or (vis_rgb and vis_rgb_resolve_visib):
     ren_depth = np.zeros((im_size[1], im_size[0]), np.float32)
 
+  vis_im_rgb = rgb.astype(np.float32)
+
   # Render the pose estimates one by one.
   for pose in poses:
+
+    #Cuong add change rotation
+    # Convert the existing rotation to a rotation object
+    rotation = Rotation.from_matrix(pose['R'])
+    # Apply the additional rotation around the x-axis
+    rotation_additional = Rotation.from_euler('x', random.uniform(0, 45), degrees=True)
+    rotation_additional = Rotation.from_euler('y', random.uniform(0, 45), degrees=True)
+    rotation_additional = Rotation.from_euler('z', random.uniform(0, 45), degrees=True)
+    rotation_updated = rotation * rotation_additional
+    # Update the 'R' key in the pose dictionary
+    pose['R'] = rotation_updated.as_matrix()
 
     # Rendering.
     ren_out = renderer.render_object(
@@ -167,69 +182,108 @@ def vis_object_poses(
     # Combine the RGB renderings.
     if vis_rgb:
       if vis_rgb_resolve_visib:
-        ren_rgb[m_mask] = m_rgb[m_mask].astype(ren_rgb.dtype)
+        #ren_rgb[m_mask] = m_rgb[m_mask].astype(ren_rgb.dtype)
+        # Draw circles at corresponding pixels of visible object.
+        # Get the indices of non-zero elements in m_mask
+        ys, xs = np.nonzero(m_mask)
+
+        # Set the maximum number of circles to be drawn
+        num_object_pixels = len(xs)
+        max_circles_proportion = 0.1  # Adjust the proportion as desired
+        max_circles = int(max_circles_proportion * num_object_pixels)
+
+        # Randomly sample a subset of indices
+        indices = np.random.choice(len(xs), size=min(max_circles, len(xs)), replace=False)
+        radius = 1  # Set the radius of the circle
+        outid = pose['obj_id'] - 1
+        color = get_class_colors(outid)  # Set the color of the circle (BGR format)
+        thickness = -1  # Set the thickness to -1 for a filled circle
+
+        # Draw circles at corresponding pixels of visible objects
+        for idx in indices:
+            x, y = xs[idx], ys[idx]
+            center = (x, y)
+            vis_im_rgb = cv2.circle(vis_im_rgb, center, radius, color, thickness)
       else:
         ren_rgb_f = ren_rgb.astype(np.float32) + m_rgb.astype(np.float32)
         ren_rgb_f[ren_rgb_f > 255] = 255
         ren_rgb = ren_rgb_f.astype(np.uint8)
 
-      # Draw 2D bounding box and write text info.
-      obj_mask = np.sum(m_rgb > 0, axis=2)
-      ys, xs = obj_mask.nonzero()
-      if len(ys):
-        # bbox_color = model_color
-        # text_color = model_color
-        bbox_color = (0.3, 0.3, 0.3)
-        text_color = (1.0, 1.0, 1.0)
-        text_size = 11
-
-        bbox = misc.calc_2d_bbox(xs, ys, im_size)
-        im_size = (obj_mask.shape[1], obj_mask.shape[0])
-        ren_rgb_info = draw_rect(ren_rgb_info, bbox, bbox_color)
-
-        if 'text_info' in pose:
-          text_loc = (bbox[0] + 2, bbox[1])
-          ren_rgb_info = write_text_on_image(
-            ren_rgb_info, pose['text_info'], text_loc, color=text_color,
-            size=text_size)
 
   # Blend and save the RGB visualization.
   if vis_rgb:
     misc.ensure_dir(os.path.dirname(vis_rgb_path))
 
-    vis_im_rgb = 0.5 * rgb.astype(np.float32) + \
-                 0.5 * ren_rgb.astype(np.float32) + \
-                 1.0 * ren_rgb_info.astype(np.float32)
+    #vis_im_rgb = 0.5 * rgb.astype(np.float32) + \
+    #             0.5 * ren_rgb.astype(np.float32) + \
+    #             1.0 * ren_rgb_info.astype(np.float32)
+    #Cuong
     vis_im_rgb[vis_im_rgb > 255] = 255
     inout.save_im(vis_rgb_path, vis_im_rgb.astype(np.uint8), jpg_quality=95)
+    #cv2.imwrite(vis_rgb_path, vis_im_rgb)
 
-  # Save the image of depth differences.
-  if vis_depth_diff:
-    misc.ensure_dir(os.path.dirname(vis_depth_diff_path))
 
-    # Calculate the depth difference at pixels where both depth maps are valid.
-    valid_mask = (depth > 0) * (ren_depth > 0)
-    depth_diff = valid_mask * (ren_depth.astype(np.float32) - depth)
 
-    # Get mask of pixels where the rendered depth is at most by the tolerance
-    # delta behind the captured depth (this tolerance is used in VSD).
-    delta = 15
-    below_delta = valid_mask * (depth_diff < delta)
-    below_delta_vis = (255 * below_delta).astype(np.uint8)
+def get_class_colors(class_id):
+    colordict = {'gray': [128, 128, 128], 'silver': [192, 192, 192], 'black': [0, 0, 0],
+                 'maroon': [128, 0, 0], 'red': [255, 0, 0], 'purple': [128, 0, 128], 'fuchsia': [255, 0, 255],
+                 'green': [0, 128, 0],
+                 'lime': [0, 255, 0], 'olive': [128, 128, 0], 'yellow': [255, 255, 0], 'navy': [0, 0, 128],
+                 'blue': [0, 0, 255],
+                 'teal': [0, 128, 128], 'aqua': [0, 255, 255], 'orange': [255, 165, 0], 'indianred': [205, 92, 92],
+                 'lightcoral': [240, 128, 128], 'salmon': [250, 128, 114], 'darksalmon': [233, 150, 122],
+                 'lightsalmon': [255, 160, 122], 'crimson': [220, 20, 60], 'firebrick': [178, 34, 34],
+                 'darkred': [139, 0, 0],
+                 'pink': [255, 192, 203], 'lightpink': [255, 182, 193], 'hotpink': [255, 105, 180],
+                 'deeppink': [255, 20, 147],
+                 'mediumvioletred': [199, 21, 133], 'palevioletred': [219, 112, 147], 'coral': [255, 127, 80],
+                 'tomato': [255, 99, 71], 'orangered': [255, 69, 0], 'darkorange': [255, 140, 0], 'gold': [255, 215, 0],
+                 'lightyellow': [255, 255, 224], 'lemonchiffon': [255, 250, 205],
+                 'lightgoldenrodyellow': [250, 250, 210],
+                 'papayawhip': [255, 239, 213], 'moccasin': [255, 228, 181], 'peachpuff': [255, 218, 185],
+                 'palegoldenrod': [238, 232, 170], 'khaki': [240, 230, 140], 'darkkhaki': [189, 183, 107],
+                 'lavender': [230, 230, 250], 'thistle': [216, 191, 216], 'plum': [221, 160, 221],
+                 'violet': [238, 130, 238],
+                 'orchid': [218, 112, 214], 'magenta': [255, 0, 255], 'mediumorchid': [186, 85, 211],
+                 'mediumpurple': [147, 112, 219], 'blueviolet': [138, 43, 226], 'darkviolet': [148, 0, 211],
+                 'darkorchid': [153, 50, 204], 'darkmagenta': [139, 0, 139], 'indigo': [75, 0, 130],
+                 'slateblue': [106, 90, 205],
+                 'darkslateblue': [72, 61, 139], 'mediumslateblue': [123, 104, 238], 'greenyellow': [173, 255, 47],
+                 'chartreuse': [127, 255, 0], 'lawngreen': [124, 252, 0], 'limegreen': [50, 205, 50],
+                 'palegreen': [152, 251, 152],
+                 'lightgreen': [144, 238, 144], 'mediumspringgreen': [0, 250, 154], 'springgreen': [0, 255, 127],
+                 'mediumseagreen': [60, 179, 113], 'seagreen': [46, 139, 87], 'forestgreen': [34, 139, 34],
+                 'darkgreen': [0, 100, 0], 'yellowgreen': [154, 205, 50], 'olivedrab': [107, 142, 35],
+                 'darkolivegreen': [85, 107, 47], 'mediumaquamarine': [102, 205, 170], 'darkseagreen': [143, 188, 143],
+                 'lightseagreen': [32, 178, 170], 'darkcyan': [0, 139, 139], 'cyan': [0, 255, 255],
+                 'lightcyan': [224, 255, 255],
+                 'paleturquoise': [175, 238, 238], 'aquamarine': [127, 255, 212], 'turquoise': [64, 224, 208],
+                 'mediumturquoise': [72, 209, 204], 'darkturquoise': [0, 206, 209], 'cadetblue': [95, 158, 160],
+                 'steelblue': [70, 130, 180], 'lightsteelblue': [176, 196, 222], 'powderblue': [176, 224, 230],
+                 'lightblue': [173, 216, 230], 'skyblue': [135, 206, 235], 'lightskyblue': [135, 206, 250],
+                 'deepskyblue': [0, 191, 255], 'dodgerblue': [30, 144, 255], 'cornflowerblue': [100, 149, 237],
+                 'royalblue': [65, 105, 225], 'mediumblue': [0, 0, 205], 'darkblue': [0, 0, 139],
+                 'midnightblue': [25, 25, 112],
+                 'cornsilk': [255, 248, 220], 'blanchedalmond': [255, 235, 205], 'bisque': [255, 228, 196],
+                 'navajowhite': [255, 222, 173], 'wheat': [245, 222, 179], 'burlywood': [222, 184, 135],
+                 'tan': [210, 180, 140],
+                 'rosybrown': [188, 143, 143], 'sandybrown': [244, 164, 96], 'goldenrod': [218, 165, 32],
+                 'darkgoldenrod': [184, 134, 11], 'peru': [205, 133, 63], 'chocolate': [210, 105, 30],
+                 'saddlebrown': [139, 69, 19],
+                 'sienna': [160, 82, 45], 'brown': [165, 42, 42], 'snow': [255, 250, 250], 'honeydew': [240, 255, 240],
+                 'mintcream': [245, 255, 250], 'azure': [240, 255, 255], 'aliceblue': [240, 248, 255],
+                 'ghostwhite': [248, 248, 255], 'whitesmoke': [245, 245, 245], 'seashell': [255, 245, 238],
+                 'beige': [245, 245, 220], 'oldlace': [253, 245, 230], 'floralwhite': [255, 250, 240],
+                 'ivory': [255, 255, 240],
+                 'antiquewhite': [250, 235, 215], 'linen': [250, 240, 230], 'lavenderblush': [255, 240, 245],
+                 'mistyrose': [255, 228, 225], 'gainsboro': [220, 220, 220], 'lightgrey': [211, 211, 211],
+                 'darkgray': [169, 169, 169], 'dimgray': [105, 105, 105], 'lightslategray': [119, 136, 153],
+                 'slategray': [112, 128, 144], 'darkslategray': [47, 79, 79], 'white': [255, 255, 255]}
 
-    depth_diff_vis = 255 * depth_for_vis(depth_diff - depth_diff.min())
+    colornames = list(colordict.keys())
+    assert (class_id < len(colornames))
 
-    # Pixels where the rendered depth is more than the tolerance delta behing
-    # the captured depth will be cyan.
-    depth_diff_vis = np.dstack(
-      [below_delta_vis, depth_diff_vis, depth_diff_vis]).astype(np.uint8)
+    r, g, b = colordict[colornames[class_id]]
+    #r, g, b = colordict[colornames[7]]
 
-    depth_diff_vis[np.logical_not(valid_mask)] = 0
-    depth_diff_valid = depth_diff[valid_mask]
-    depth_info = [
-      {'name': 'min diff', 'fmt': ':.3f', 'val': np.min(depth_diff_valid)},
-      {'name': 'max diff', 'fmt': ':.3f', 'val': np.max(depth_diff_valid)},
-      {'name': 'mean diff', 'fmt': ':.3f', 'val': np.mean(depth_diff_valid)},
-    ]
-    depth_diff_vis = write_text_on_image(depth_diff_vis, depth_info)
-    inout.save_im(vis_depth_diff_path, depth_diff_vis)
+    return b, g, r  # for OpenCV

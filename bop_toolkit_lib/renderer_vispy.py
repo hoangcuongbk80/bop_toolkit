@@ -511,7 +511,10 @@ class RendererVispy(renderer.Renderer, app.Canvas, metaclass=SingletonArgs):
     program["u_mvp"] = _calc_model_view_proj(mat_model, mat_view, mat_proj)
 
     # Rendering.
-    program.draw("triangles", self.index_buffers[obj_id])
+    #program.draw("triangles", self.index_buffers[obj_id])
+    #Cuong
+    program.draw("points", self.index_buffers[obj_id])
+
 
     # Get the content of the FBO texture.
     rgb = gl.glReadPixels(0, 0, self.width, self.height, gl.GL_RGB, gl.GL_UNSIGNED_BYTE)
@@ -533,6 +536,7 @@ class RendererVispy(renderer.Renderer, app.Canvas, metaclass=SingletonArgs):
     program["u_mvp"] = _calc_model_view_proj(mat_model, mat_view, mat_proj)
 
     # Rendering.
+    #program.draw("triangles", self.index_buffers[obj_id])
     program.draw("triangles", self.index_buffers[obj_id])
 
     dep = gl.glReadPixels(0, 0, self.width, self.height, gl.GL_DEPTH_COMPONENT, gl.GL_FLOAT)
