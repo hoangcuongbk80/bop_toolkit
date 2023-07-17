@@ -1,0 +1,3 @@
+conda activate BOP_toolkit_env
+pip install .
+python scripts/vis_gt_poses_ycbv.py
